@@ -112,7 +112,7 @@
           "requiresRestart": true,
           "description": "MQTT protocol version",
           "default": 4,
-          "examples": [4, 5]
+          "examples": [5]
         },
         "force_disable_retain": {
           "type": "boolean",
@@ -143,9 +143,10 @@
           "default": false
         },
         "adapter": {
-          "type": ["string", "null"],
-          "enum": ["deconz", "zstack", "zigate", "ezsp"],
+          "type": ["string"],
+          "enum": ["deconz", "zstack", "zigate", "ezsp", "auto"],
           "title": "Adapter",
+          "default": "auto",
           "requiresRestart": true,
           "description": "Adapter type, not needed unless you are experiencing problems"
         }
@@ -247,7 +248,7 @@
           "title": "ZigBee channel",
           "requiresRestart": true,
           "description": "Zigbee channel, changing requires repairing all devices! (Note: use a ZLL channel: 11, 15, 20, or 25 to avoid Problems)",
-          "examples": [11, 15, 20, 25]
+          "examples": [15, 20, 25]
         },
         "cache_state": {
           "type": "boolean",
@@ -273,6 +274,13 @@
           "requiresRestart": true,
           "description": "Log rotation",
           "default": true
+        },
+        "log_symlink_current": {
+          "type": "boolean",
+          "title": "Log symlink current",
+          "requiresRestart": true,
+          "description": "Create symlink to current logs in the log directory",
+          "default": false
         },
         "log_level": {
           "type": "string",
@@ -310,8 +318,8 @@
           "type": "number",
           "title": "Baudrate",
           "requiresRestart": true,
-          "description": "Baudrate for serial port, default: 115200 for Z-Stack, 38400 for Deconz",
-          "examples": [38400, 115200]
+          "description": "Baud rate speed for serial port, this can be anything firmware support but default is 115200 for Z-Stack and EZSP, 38400 for Deconz, however note that some EZSP firmware need 57600",
+          "examples": [38400, 57600, 115200]
         },
         "rtscts": {
           "type": "boolean",
@@ -415,6 +423,12 @@
           "requiresRestart": true,
           "examples": ["homeassistant"]
         },
+        "homeassistant_legacy_entity_attributes": {
+          "type": "boolean",
+          "title": "Home Assistant legacy entity attributes",
+          "description": "Home Assistant legacy entity attributes, when enabled Zigbee2MQTT will add state attributes to each entity, additional to the separate entities and devices it already creates",
+          "default": true
+        },
         "homeassistant_status_topic": {
           "type": "string",
           "title": "Home Assistant status topic",
@@ -476,7 +490,6 @@
               "description": "The network protocol to log over (e.g. tcp4, udp4, tls4, unix, unix-connect, etc).",
               "default": "tcp4",
               "examples": [
-                "tcp4",
                 "udp4",
                 "tls4",
                 "unix",
@@ -489,7 +502,6 @@
               "description": "The path to the syslog dgram socket (i.e. /dev/log or /var/run/syslog for OS X).",
               "default": "/dev/log",
               "examples": [
-                "/dev/log",
                 "/var/run/syslog"
               ]
             },
@@ -692,7 +704,17 @@
         "optimistic": {
           "type": "boolean",
           "title": "Optimistic",
-          "description": "Publish optimistic state after set (default true)"
+          "description": "Publish optimistic state after set",
+          "default": true
+        },
+        "filtered_optimistic": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "examples": ["color_mode", "color_temp", "color"],
+          "title": "Filtered optimistic attributes",
+          "description": "Filter attributes from optimistic publish payload when calling /set. (This has no effect if optimistic is set to false)."
         },
         "filtered_attributes": {
           "type": "array",
@@ -700,8 +722,13 @@
             "type": "string"
           },
           "examples": ["temperature", "battery", "action"],
-          "title": "Filtered attributes",
-          "description": "Allows to prevent certain attributes from being published"
+          "title": "Filtered publish attributes",
+          "description": "Filter attributes from publish payload."
+        },
+        "icon": {
+          "type": "string",
+          "title": "Icon",
+          "description": "The user-defined device icon for the frontend. It can be a link to an image (not a path to a file) or base64 encoded data URL like: image/svg+xml;base64,PHN2ZyB3aW....R0aD"
         }
       },
       "required": ["friendly_name"]

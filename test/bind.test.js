@@ -229,6 +229,52 @@ describe('Bind', () => {
         );
     });
 
+    it('Should unbind from group with skip_disable_reporting=true', async () => {
+        const device = zigbeeHerdsman.devices.remote;
+        const target = zigbeeHerdsman.groups.group_1;
+        const target1Member = zigbeeHerdsman.devices.bulb_2.getEndpoint(1);
+        const endpoint = device.getEndpoint(1);
+        target.members.push(target1Member);
+
+        // The device unbind mock doesn't remove binds, therefore remove them here already otherwise configure reporiting is not disabled.
+        const originalBinds = endpoint.binds;
+        endpoint.binds = [];
+
+        target1Member.binds = [{cluster: {name: 'genLevelCtrl'}, target: zigbeeHerdsman.devices.coordinator.getEndpoint(1)}, {cluster: {name: 'genOnOff'}, target: zigbeeHerdsman.devices.coordinator.getEndpoint(1)}];
+        target1Member.configureReporting.mockClear();
+        mockClear(device);
+        MQTT.events.message('zigbee2mqtt/bridge/request/device/unbind', stringify({from: 'remote', to: 'group_1', skip_disable_reporting: true}));
+        await flushPromises();
+        expect(endpoint.unbind).toHaveBeenCalledTimes(3);
+        // with skip_disable_reporting set to false, we don't expect it to reconfigure reporting
+        expect(target1Member.configureReporting).toHaveBeenCalledTimes(0);
+        endpoint.binds = originalBinds;
+    });
+
+    it('Should unbind from group with skip_disable_reporting=false', async () => {
+        const device = zigbeeHerdsman.devices.remote;
+        const target = zigbeeHerdsman.groups.group_1;
+        const target1Member = zigbeeHerdsman.devices.bulb_2.getEndpoint(1);
+        const endpoint = device.getEndpoint(1);
+        target.members.push(target1Member);
+
+        // The device unbind mock doesn't remove binds, therefore remove them here already otherwise configure reporiting is not disabled.
+        const originalBinds = endpoint.binds;
+        endpoint.binds = [];
+
+        target1Member.binds = [{cluster: {name: 'genLevelCtrl'}, target: zigbeeHerdsman.devices.coordinator.getEndpoint(1)}, {cluster: {name: 'genOnOff'}, target: zigbeeHerdsman.devices.coordinator.getEndpoint(1)}];
+        target1Member.configureReporting.mockClear();
+        mockClear(device);
+        MQTT.events.message('zigbee2mqtt/bridge/request/device/unbind', stringify({from: 'remote', to: 'group_1', skip_disable_reporting: false}));
+        await flushPromises();
+        expect(endpoint.unbind).toHaveBeenCalledTimes(3);
+        // with skip_disable_reporting set, we expect it to reconfigure reporting
+        expect(target1Member.configureReporting).toHaveBeenCalledTimes(2);
+        expect(target1Member.configureReporting).toHaveBeenCalledWith('genLevelCtrl', [{"attribute": "currentLevel", "maximumReportInterval": 65535, "minimumReportInterval": 5, "reportableChange": 1}])
+        expect(target1Member.configureReporting).toHaveBeenCalledWith('genOnOff', [{"attribute": "onOff", "maximumReportInterval": 65535, "minimumReportInterval": 0, "reportableChange": 0}])
+        endpoint.binds = originalBinds;
+    });
+
     it('Should bind to group by number', async () => {
         const device = zigbeeHerdsman.devices.remote;
         const target = zigbeeHerdsman.groups.group_1;
@@ -275,6 +321,22 @@ describe('Bind', () => {
         expect(MQTT.publish).toHaveBeenCalledWith(
             'zigbee2mqtt/bridge/response/device/bind',
             stringify({"data":{"from":"remote/ep2","to":"wall_switch_double/right","clusters":["genOnOff"],"failed":[]},"status":"ok"}),
+            {retain: false, qos: 0}, expect.any(Function)
+        );
+    });
+
+    it('Should bind server clusters to client clusters', async () => {
+        const device = zigbeeHerdsman.devices.temperature_sensor;
+        const target = zigbeeHerdsman.devices.heating_actuator.getEndpoint(1);
+        const endpoint = device.getEndpoint(1);
+        mockClear(device);
+        MQTT.events.message('zigbee2mqtt/bridge/request/device/bind', stringify({from: 'temperature_sensor', to: 'heating_actuator'}));
+        await flushPromises();
+        expect(endpoint.bind).toHaveBeenCalledTimes(1);
+        expect(endpoint.bind).toHaveBeenCalledWith("msTemperatureMeasurement", target);
+        expect(MQTT.publish).toHaveBeenCalledWith(
+            'zigbee2mqtt/bridge/response/device/bind',
+            stringify({"data":{"from":"temperature_sensor","to":"heating_actuator","clusters":["msTemperatureMeasurement"],"failed":[]},"status":"ok"}),
             {retain: false, qos: 0}, expect.any(Function)
         );
     });

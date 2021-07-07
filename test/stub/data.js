@@ -165,6 +165,15 @@ function writeDefaultConfiguration() {
             '0x0017882194e45543': {
                 friendly_name: 'QS-Zigbee-D02-TRIAC-2C-LN',
             },
+            '0x0017880104e45724': {
+                friendly_name: 'GLEDOPTO_2ID',
+            },
+            '0x0017880104e45561': {
+                friendly_name: 'temperature_sensor',
+            },
+            '0x0017880104e45562': {
+                friendly_name: 'heating_actuator',
+            }
         },
         groups: {
             '1': {
@@ -194,7 +203,15 @@ function writeDefaultConfiguration() {
                 friendly_name: 'switch_group',
                 retain: false,
                 devices: ['power_plug'],
-            }
+            },
+            '21': {
+                friendly_name: 'gledopto_group',
+                devices: ['GLEDOPTO_2ID/cct'],
+            },
+            '9': {
+                friendly_name: 'ha_discovery_group',
+                devices: ['bulb_color_2', 'bulb_2', 'wall_switch_double/right']
+            },
         },
         external_converters: [],
     };
