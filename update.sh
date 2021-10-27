@@ -7,12 +7,8 @@ if [ -d data-backup ]; then
    exit 1
 fi
 
-if which systemctl 2> /dev/null > /dev/null; then
-       echo "Stopping Zigbee2MQTT..."
-       sudo systemctl stop zigbee2mqtt
-else
-       echo "Skipped stopping Zigbee2MQTT, no systemctl found"
-fi
+echo "Stopping Zigbee2MQTT..."
+sudo systemctl stop zigbee2mqtt
 
 echo "Creating backup of configuration..."
 cp -R data data-backup
@@ -23,6 +19,8 @@ rm -f ./node_modules/zigbee-herdsman-converters
 echo "Updating..."
 git checkout HEAD -- npm-shrinkwrap.json
 git pull
+npm update
+npm install
 
 echo "Installing dependencies..."
 npm ci
@@ -33,18 +31,17 @@ mv ./node_modules/zigbee-herdsman-converters ./node_modules/zigbee-herdsman-conv
 #rm -rf ./node_modules/zigbee-herdsman-converters
 cd ../zigbee-herdsman-converters.aofc/
 git pull
+npm ci
 cd ../zigbee2mqtt/
 ln -s -T /opt/zigbee-herdsman-converters.aofc /opt/zigbee2mqtt/node_modules/zigbee-herdsman-converters
 
 echo "Restore configuration..."
 cp -R data-backup/* data
 rm -rf data-backup
+sudo chown -R tv:tv .
+sudo chown www-data:www-data htpasswd
 
-if which systemctl 2> /dev/null > /dev/null; then
-       echo "Starting Zigbee2MQTT..."
-       sudo systemctl start zigbee2mqtt
-else
-       echo "Skipped starting Zigbee2MQTT, no systemctl found"
-fi
+echo "Starting Zigbee2MQTT..."
+sudo systemctl start zigbee2mqtt
 
 echo "Done!"
