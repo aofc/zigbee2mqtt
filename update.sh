@@ -26,13 +26,13 @@ echo "Installing dependencies..."
 npm ci
 
 echo "Updating zigbee-herdsman-converters..."
-mv ./node_modules/zigbee-herdsman-converters ./node_modules/zigbee-herdsman-converters.Koenkk
 #git checkout HEAD -- npm-shrinkwrap.json
 #rm -rf ./node_modules/zigbee-herdsman-converters
 cd ../zigbee-herdsman-converters.aofc/
 git pull
 npm ci
 cd ../zigbee2mqtt/
+mv ./node_modules/zigbee-herdsman-converters ./node_modules/zigbee-herdsman-converters.Koenkk
 ln -s -T /opt/zigbee-herdsman-converters.aofc /opt/zigbee2mqtt/node_modules/zigbee-herdsman-converters
 
 echo "Restore configuration..."
