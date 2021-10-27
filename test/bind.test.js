@@ -4,7 +4,7 @@ const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
 const MQTT = require('./stub/mqtt');
 const settings = require('../lib/util/settings');
 const Controller = require('../lib/controller');
-const flushPromises = () => new Promise(setImmediate);
+const flushPromises = require('./lib/flushPromises');
 const stringify = require('json-stable-stringify-without-jsonify');
 jest.mock('debounce', () => jest.fn(fn => fn));
 const debounce = require('debounce');
@@ -12,7 +12,7 @@ const debounce = require('debounce');
 describe('Bind', () => {
     let controller;
 
-    mockClear = (device) => {
+    const mockClear = (device) => {
         for (const endpoint of device.endpoints) {
             endpoint.read.mockClear();
             endpoint.write.mockClear();
@@ -23,21 +23,33 @@ describe('Bind', () => {
         }
     }
 
+    let resetExtension = async () => {
+        await controller.enableDisableExtension(false, 'Bind');
+        await controller.enableDisableExtension(true, 'Bind');
+    }
+
+    beforeAll(async () => {
+        jest.useFakeTimers();
+        controller = new Controller(jest.fn(), jest.fn());
+        await controller.start();
+        await flushPromises();
+    });
+
     beforeEach(async () => {
         data.writeDefaultConfiguration();
         settings.reRead();
-        data.writeEmptyState();
         zigbeeHerdsman.groups.group_1.members = [];
         zigbeeHerdsman.devices.bulb_color.getEndpoint(1).configureReporting.mockClear();
         zigbeeHerdsman.devices.bulb_color.getEndpoint(1).bind.mockClear();
         zigbeeHerdsman.devices.bulb_color_2.getEndpoint(1).read.mockClear();
         debounce.mockClear();
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
-        await flushPromises();
-        this.coordinatorEndoint = zigbeeHerdsman.devices.coordinator.getEndpoint(1);
+        await resetExtension();
         MQTT.publish.mockClear();
     });
+
+    afterAll(async () => {
+        jest.useRealTimers();
+    })
 
     it('Should bind to device and configure reporting', async () => {
         const device = zigbeeHerdsman.devices.remote;
@@ -571,6 +583,19 @@ describe('Bind', () => {
         await flushPromises();
         expect(debounce).toHaveBeenCalledTimes(1);
         expect(zigbeeHerdsman.devices.bulb_color.getEndpoint(1).read).toHaveBeenCalledWith("genLevelCtrl", ["currentLevel"]);
+    });
+
+    it('Should poll bounded Hue bulb when receiving message from scene controller', async () => {
+        const remote = zigbeeHerdsman.devices.bj_scene_switch;
+        const data = {"action": "recall_2_row_1"};
+        const payload = {data, cluster: 'genScenes', device: remote, endpoint: remote.getEndpoint(10), type: 'commandRecall', linkquality: 10, groupID: 0};
+        await zigbeeHerdsman.events.message(payload);
+        await flushPromises();
+        // Calls to three clusters are expected in this case
+        expect(debounce).toHaveBeenCalledTimes(3);
+        expect(zigbeeHerdsman.devices.bulb_color_2.getEndpoint(1).read).toHaveBeenCalledWith("genOnOff", ["onOff"]);
+        expect(zigbeeHerdsman.devices.bulb_color_2.getEndpoint(1).read).toHaveBeenCalledWith("genLevelCtrl", ["currentLevel"]);
+	expect(zigbeeHerdsman.devices.bulb_color_2.getEndpoint(1).read).toHaveBeenCalledWith("lightingColorCtrl", ["currentX", "currentY", "colorTemperature"]);
     });
 
     it('Should poll grouped Hue bulb when receiving message from TRADFRI remote', async () => {

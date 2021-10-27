@@ -3,11 +3,11 @@ const logger = require('./stub/logger');
 const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
 const MQTT = require('./stub/mqtt');
 const path = require('path');
+const rimraf = require('rimraf');
 const settings = require('../lib/util/settings');
 const Controller = require('../lib/controller');
 const stringify = require('json-stable-stringify-without-jsonify');
-const flushPromises = () => new Promise(setImmediate);
-const tmp = require('tmp');
+const flushPromises = require('./lib/flushPromises');
 const mocksClear = [
     zigbeeHerdsman.permitJoin, MQTT.end, zigbeeHerdsman.stop, logger.debug,
     MQTT.publish, MQTT.connect, zigbeeHerdsman.devices.bulb_color.removeFromNetwork,
@@ -20,12 +20,24 @@ const unlinkSyncSpy = jest.spyOn(fs, 'unlinkSync');
 
 describe('User extensions', () => {
     let controller;
-    let mockExit;
+
+    beforeAll(async () => {
+        jest.useFakeTimers();
+    });
+
+    beforeEach(async () => {
+        data.writeDefaultConfiguration();
+        settings.reRead();
+        mocksClear.forEach((m) => m.mockClear());
+    });
+    
+    afterAll(async () => {
+        jest.useRealTimers();
+    });
 
     beforeEach(() => {
         zigbeeHerdsman.returnDevices.splice(0);
-        mockExit = jest.fn();
-        controller = new Controller(jest.fn(), mockExit);
+        controller = new Controller(jest.fn(), jest.fn());
         mocksClear.forEach((m) => m.mockClear());
         data.writeDefaultConfiguration();
         settings.reRead();
@@ -33,7 +45,7 @@ describe('User extensions', () => {
     });
     afterEach(() => {
         const extensionPath = path.join(data.mockDir, 'extension');
-        fs.rmdirSync(extensionPath, {recursive: true});
+        rimraf.sync(extensionPath);
     })
 
     it('Load user extension', async () => {

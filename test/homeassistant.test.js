@@ -3,33 +3,53 @@ const settings = require('../lib/util/settings');
 const stringify = require('json-stable-stringify-without-jsonify');
 const logger = require('./stub/logger');
 const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
-const flushPromises = () => new Promise(setImmediate);
+const flushPromises = require('./lib/flushPromises');
 const MQTT = require('./stub/mqtt');
 const Controller = require('../lib/controller');
 const fs = require('fs');
 const path = require('path');
-const HomeAssistant = require('../lib/extension/homeassistant');
-
-const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
 
 describe('HomeAssistant extension', () => {
+    let version;
+    let controller;
+    let extension;
+
+    let resetExtension = async () => {
+        await controller.enableDisableExtension(false, 'HomeAssistant');
+        MQTT.publish.mockClear();
+        await controller.enableDisableExtension(true, 'HomeAssistant');
+        extension = controller.extensions.find((e) => e.constructor.name === 'HomeAssistant');
+    }
+
     beforeEach(async () => {
-        this.version = await require('../lib/util/utils').getZigbee2mqttVersion();
-        this.version = `Zigbee2MQTT ${this.version.version}`;
-        jest.useRealTimers();
+        data.writeDefaultConfiguration();
+        settings.reRead();
+        data.writeEmptyState();
+        controller.state._load();
+        await resetExtension();
+    });
+
+    beforeAll(async () => {
+        version = await require('../lib/util/utils').getZigbee2MQTTVersion();
+        version = `Zigbee2MQTT ${version.version}`;
+        jest.useFakeTimers();
+        settings.set(['homeassistant'], true);
         data.writeDefaultConfiguration();
         settings.reRead();
         data.writeEmptyState();
         MQTT.publish.mockClear();
-        settings.set(['homeassistant'], true);
+        controller = new Controller(false);
+        await controller.start();
+    });
+
+    afterAll(async () => {
+        jest.useRealTimers();
     });
 
     it('Should not have duplicate type/object_ids in a mapping', () => {
         const duplicated = [];
-        const ha = new HomeAssistant(null, null, null, null, {on: () => {}});
-
         require('zigbee-herdsman-converters').devices.forEach((d) => {
-            const mapping = ha._getMapping()[d.model];
+            const mapping = extension._getMapping()[d.model];
             const cfg_type_object_ids = [];
 
             mapping.forEach((c) => {
@@ -45,9 +65,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover devices and groups', async () => {
-        controller = new Controller(false);
-        await controller.start();
-
         let payload;
         await flushPromises();
 
@@ -58,12 +75,12 @@ describe('HomeAssistant extension', () => {
             "color_mode":true,
             "command_topic":"zigbee2mqtt/ha_discovery_group/set",
             "device":{
-               "identifiers":[
-                  "zigbee2mqtt_9"
-               ],
+               "identifiers":["zigbee2mqtt_1221051039810110150109113116116_9"],
                "name":"ha_discovery_group",
-               "sw_version":this.version,
+               "sw_version":version,
             },
+            "max_mireds": 454,
+            "min_mireds": 250,
             "json_attributes_topic":"zigbee2mqtt/ha_discovery_group",
             "name":"ha_discovery_group",
             "schema":"json",
@@ -76,7 +93,7 @@ describe('HomeAssistant extension', () => {
         };
 
         expect(MQTT.publish).toHaveBeenCalledWith(
-            'homeassistant/light/9/light/config',
+            'homeassistant/light/1221051039810110150109113116116_9/light/config',
             stringify(payload),
             { retain: true, qos: 0 },
             expect.any(Function),
@@ -86,9 +103,9 @@ describe('HomeAssistant extension', () => {
             "availability":[{"topic":"zigbee2mqtt/bridge/state"}],
             "command_topic":"zigbee2mqtt/ha_discovery_group/set",
             "device":{
-               "identifiers":["zigbee2mqtt_9"],
+               "identifiers":["zigbee2mqtt_1221051039810110150109113116116_9"],
                "name":"ha_discovery_group",
-               "sw_version":this.version,
+               "sw_version":version,
             },
             "json_attributes_topic":"zigbee2mqtt/ha_discovery_group",
             "name":"ha_discovery_group",
@@ -100,7 +117,7 @@ describe('HomeAssistant extension', () => {
          };
 
         expect(MQTT.publish).toHaveBeenCalledWith(
-            'homeassistant/switch/9/switch/config',
+            'homeassistant/switch/1221051039810110150109113116116_9/switch/config',
             stringify(payload),
             { retain: true, qos: 0 },
             expect.any(Function),
@@ -118,11 +135,12 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
             'availability': [{topic: 'zigbee2mqtt/bridge/state'}],
+            'enabled_by_default': true,
         };
 
         expect(MQTT.publish).toHaveBeenCalledWith(
@@ -141,10 +159,11 @@ describe('HomeAssistant extension', () => {
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_humidity',
             'unique_id': '0x0017880104e45522_humidity_zigbee2mqtt',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -167,10 +186,11 @@ describe('HomeAssistant extension', () => {
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_pressure',
             'unique_id': '0x0017880104e45522_pressure_zigbee2mqtt',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -193,10 +213,11 @@ describe('HomeAssistant extension', () => {
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_battery',
             'unique_id': '0x0017880104e45522_battery_zigbee2mqtt',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -223,7 +244,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -238,11 +259,7 @@ describe('HomeAssistant extension', () => {
         );
 
         payload = {
-            "availability":[
-                {
-                    "topic":"zigbee2mqtt/bridge/state"
-                }
-            ],
+            "availability":[{"topic":"zigbee2mqtt/bridge/state"}],
             "command_topic":"zigbee2mqtt/wall_switch_double/left/set",
             "device":{
                 "identifiers":[
@@ -251,7 +268,7 @@ describe('HomeAssistant extension', () => {
                 "manufacturer":"Xiaomi",
                 "model":"Aqara double key wired wall switch without neutral wire. Doesn't work as a router and doesn't support power meter (QBKG03LM)",
                 "name":"wall_switch_double",
-                "sw_version":this.version
+                "sw_version":version
             },
             "json_attributes_topic":"zigbee2mqtt/wall_switch_double",
             "name":"wall_switch_double_left",
@@ -270,11 +287,7 @@ describe('HomeAssistant extension', () => {
         );
 
         payload = {
-            "availability":[
-                {
-                    "topic":"zigbee2mqtt/bridge/state"
-                }
-            ],
+            "availability":[{"topic":"zigbee2mqtt/bridge/state"}],
             "command_topic":"zigbee2mqtt/wall_switch_double/right/set",
             "device":{
                 "identifiers":[
@@ -283,7 +296,7 @@ describe('HomeAssistant extension', () => {
                 "manufacturer":"Xiaomi",
                 "model":"Aqara double key wired wall switch without neutral wire. Doesn't work as a router and doesn't support power meter (QBKG03LM)",
                 "name":"wall_switch_double",
-                "sw_version":this.version
+                "sw_version":version
             },
             "json_attributes_topic":"zigbee2mqtt/wall_switch_double",
             "name":"wall_switch_double_right",
@@ -302,11 +315,7 @@ describe('HomeAssistant extension', () => {
         );
 
         payload = {
-            "availability":[
-                {
-                    "topic":"zigbee2mqtt/bridge/state"
-                }
-            ],
+            "availability":[{"topic":"zigbee2mqtt/bridge/state"}],
             "brightness":true,
             "brightness_scale":254,
             "color_mode": true,
@@ -321,7 +330,7 @@ describe('HomeAssistant extension', () => {
                 "manufacturer":"IKEA",
                 "model":"TRADFRI LED bulb E26/E27 980 lumen, dimmable, white spectrum, opal white (LED1545G12)",
                 "name":"bulb",
-                "sw_version":this.version,
+                "sw_version":version,
             },
             "effect":true,
             "effect_list":[
@@ -356,8 +365,7 @@ describe('HomeAssistant extension', () => {
             retain: false,
         })
 
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
         await flushPromises();
@@ -366,6 +374,7 @@ describe('HomeAssistant extension', () => {
             'unit_of_measurement': '°C',
             'device_class': 'temperature',
             'state_class': 'measurement',
+            'enabled_by_default': true,
             'value_template': "{{ value_json.temperature }}",
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
@@ -374,7 +383,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -397,10 +406,11 @@ describe('HomeAssistant extension', () => {
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_humidity',
             'unique_id': '0x0017880104e45522_humidity_zigbee2mqtt',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -422,11 +432,12 @@ describe('HomeAssistant extension', () => {
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_pressure',
+            'enabled_by_default': true,
             'unique_id': '0x0017880104e45522_pressure_zigbee2mqtt',
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -465,8 +476,7 @@ describe('HomeAssistant extension', () => {
             retain: false,
         })
 
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
         await flushPromises();
@@ -479,6 +489,7 @@ describe('HomeAssistant extension', () => {
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_temperature',
+            'enabled_by_default': true,
             'unique_id': '0x0017880104e45522_temperature_zigbee2mqtt',
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
@@ -507,10 +518,11 @@ describe('HomeAssistant extension', () => {
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_humidity',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'custom model',
                 'manufacturer': 'Not from Xiaomi',
             },
@@ -543,8 +555,7 @@ describe('HomeAssistant extension', () => {
             },
         })
 
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
         await flushPromises();
@@ -559,7 +570,7 @@ describe('HomeAssistant extension', () => {
               "manufacturer": "Xiaomi",
               "model": "Aqara single key wired wall switch without neutral wire. Doesn't work as a router and doesn't support power meter (QBKG04LM)",
               "name": "my_switch",
-              "sw_version": this.version
+              "sw_version": version
             },
             "json_attributes_topic": "zigbee2mqtt/my_switch",
             "name": "my_light_name_override",
@@ -586,9 +597,7 @@ describe('HomeAssistant extension', () => {
             retain: false,
         })
 
-        controller = new Controller(false);
-        await controller.start();
-
+        await resetExtension();
         await flushPromises();
 
         const topics = MQTT.publish.mock.calls.map((c) => c[0]);
@@ -604,10 +613,7 @@ describe('HomeAssistant extension', () => {
             retain: false,
         })
 
-        controller = new Controller(false);
-        await controller.start();
-
-        await flushPromises();
+        await resetExtension();
 
         const topics = MQTT.publish.mock.calls.map((c) => c[0]);
         expect(topics).not.toContain('homeassistant/sensor/0x0017880104e45522/humidity/config')
@@ -615,26 +621,24 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover devices with fan', async () => {
-        controller = new Controller(false);
-        await controller.start();
-
         let payload;
-        await flushPromises();
 
         payload = {
             "state_topic":"zigbee2mqtt/fan",
             "state_value_template":"{{ value_json.fan_state }}",
             "command_topic":"zigbee2mqtt/fan/set/fan_state",
-            "speed_state_topic":"zigbee2mqtt/fan",
-            "speed_command_topic":"zigbee2mqtt/fan/set/fan_mode",
-            "speed_value_template":"{{ value_json.fan_mode }}",
-            "speeds":[
-               "low",
-               "medium",
-               "high",
-               "on",
+            "percentage_state_topic":"zigbee2mqtt/fan",
+            "percentage_command_topic":"zigbee2mqtt/fan/set/fan_mode",
+            "percentage_value_template":"{{ {'off':0, 'low':1, 'medium':2, 'high':3, 'on':4}[value_json.fan_mode] | default('None') }}",
+            "percentage_command_template":"{{ {0:'off', 1:'low', 2:'medium', 3:'high', 4:'on'}[value] | default('') }}",
+            "preset_mode_state_topic":"zigbee2mqtt/fan",
+            "preset_mode_command_topic":"zigbee2mqtt/fan/set/fan_mode",
+            "preset_mode_value_template":"{{ value_json.fan_mode if value_json.fan_mode in ['smart'] else 'None' | default('None') }}",
+            "preset_modes":[
                "smart"
             ],
+            "speed_range_min":1,
+            "speed_range_max":4,
             "json_attributes_topic":"zigbee2mqtt/fan",
             "name":"fan",
             "unique_id":"0x0017880104e45548_fan_zigbee2mqtt",
@@ -643,7 +647,7 @@ describe('HomeAssistant extension', () => {
                   "zigbee2mqtt_0x0017880104e45548"
                ],
                "name":"fan",
-               "sw_version":this.version,
+               "sw_version":version,
                "model":"Universal wink enabled white ceiling fan premier remote control (99432)",
                "manufacturer":"Hampton Bay"
             },
@@ -659,11 +663,7 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover thermostat devices', async () => {
-        controller = new Controller(false);
-        await controller.start();
-
         let payload;
-        await flushPromises();
 
         payload = {
             'availability': [{topic: 'zigbee2mqtt/bridge/state'}],
@@ -679,7 +679,7 @@ describe('HomeAssistant extension', () => {
                "manufacturer":"TuYa",
                "model":"Radiator valve with thermostat (TS0601_thermostat)",
                "name":"TS0601_thermostat",
-               "sw_version":  this.version,
+               "sw_version":  version,
             },
             "hold_command_topic":"zigbee2mqtt/TS0601_thermostat/set/preset",
             "hold_modes":[
@@ -719,11 +719,7 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover devices with cover_position', async () => {
-        controller = new Controller(false);
-        await controller.start();
-
         let payload;
-        await flushPromises();
 
         payload = {
             command_topic: 'zigbee2mqtt/smart vent/set',
@@ -738,7 +734,7 @@ describe('HomeAssistant extension', () => {
             {
                 identifiers: [ 'zigbee2mqtt_0x0017880104e45551' ],
                 name: 'smart vent',
-                sw_version: this.version,
+                sw_version: version,
                 model: 'Smart vent (SV01)',
                 manufacturer: 'Keen Home'
             },
@@ -755,11 +751,9 @@ describe('HomeAssistant extension', () => {
 
     it('Should discover devices with custom homeassistant_discovery_topic', async () => {
         settings.set(['advanced', 'homeassistant_discovery_topic'], 'my_custom_discovery_topic')
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
-        await flushPromises();
 
         payload = {
             'unit_of_measurement': '°C',
@@ -768,12 +762,13 @@ describe('HomeAssistant extension', () => {
             'value_template': '{{ value_json.temperature }}',
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor',
+            'enabled_by_default': true,
             'name': 'weather_sensor_temperature',
             'unique_id': '0x0017880104e45522_temperature_zigbee2mqtt',
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -790,30 +785,28 @@ describe('HomeAssistant extension', () => {
 
     it('Should throw error when starting with attributes output', async () => {
         settings.set(['experimental', 'output'], 'attribute')
+        settings.set(['homeassistant'], true)
         expect(() => {
-            controller = new Controller(false);
-        }).toThrowError('Home Assitant integration is not possible with attribute output!');
+            const controller = new Controller(false);
+        }).toThrowError('Home Assistant integration is not possible with attribute output!');
     });
 
     it('Should warn when starting with cache_state false', async () => {
         settings.set(['advanced', 'cache_state'], false);
         logger.warn.mockClear();
-        controller = new Controller(false);
-        expect(logger.warn).toHaveBeenCalledWith("In order for HomeAssistant integration to work properly set `cache_state: true");
+        await resetExtension();
+        expect(logger.warn).toHaveBeenCalledWith("In order for Home Assistant integration to work properly set `cache_state: true");
     });
 
     it('Should set missing values to null', async () => {
         // https://github.com/Koenkk/zigbee2mqtt/issues/6987
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const device = zigbeeHerdsman.devices.WSDCGQ11LM;
         const data = {measuredValue: -85}
         const payload = {data, cluster: 'msTemperatureMeasurement', device, endpoint: device.getEndpoint(1), type: 'attributeReport', linkquality: 10};
         MQTT.publish.mockClear();
         await zigbeeHerdsman.events.message(payload);
         await flushPromises();
-        expect(MQTT.publish).toHaveBeenCalledTimes(3);
+        expect(MQTT.publish).toHaveBeenCalledTimes(1);
         expect(MQTT.publish).toHaveBeenCalledWith(
             'zigbee2mqtt/weather_sensor',
             stringify({"battery":null,"humidity":null,"linkquality":null,"pressure":null,"temperature":-0.85,"voltage":null}),
@@ -823,9 +816,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should copy hue/saturtion to h/s if present', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const device = zigbeeHerdsman.devices.bulb_color;
         const data = {currentHue: 0, currentSaturation: 254}
         const payload = {data, cluster: 'lightingColorCtrl', device, endpoint: device.getEndpoint(1), type: 'attributeReport', linkquality: 10};
@@ -842,9 +832,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should not copy hue/saturtion if properties are missing', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const device = zigbeeHerdsman.devices.bulb_color;
         const data = {currentX: 29991, currentY: 26872};
         const payload = {data, cluster: 'lightingColorCtrl', device, endpoint: device.getEndpoint(1), type: 'attributeReport', linkquality: 10};
@@ -861,9 +848,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should not copy hue/saturtion if color is missing', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const device = zigbeeHerdsman.devices.bulb_color;
         const data = {onOff: 1}
         const payload = {data, cluster: 'genOnOff', device, endpoint: device.getEndpoint(1), type: 'attributeReport', linkquality: 10};
@@ -880,9 +864,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldt discover when already discovered', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const device = zigbeeHerdsman.devices.WSDCGQ11LM;
         const data = {measuredValue: -85}
         const payload = {data, cluster: 'msTemperatureMeasurement', device, endpoint: device.getEndpoint(1), type: 'attributeReport', linkquality: 10};
@@ -894,9 +875,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover when not discovered yet', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         controller.extensions.find((e) => e.constructor.name === 'HomeAssistant').discovered = {};
         const device = zigbeeHerdsman.devices.WSDCGQ11LM;
         const data = {measuredValue: -85}
@@ -907,6 +885,7 @@ describe('HomeAssistant extension', () => {
         const payloadHA = {
             'unit_of_measurement': '°C',
             'device_class': 'temperature',
+            'enabled_by_default': true,
             'state_class': 'measurement',
             'value_template': '{{ value_json.temperature }}',
             'state_topic': 'zigbee2mqtt/weather_sensor',
@@ -916,7 +895,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -932,9 +911,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldnt discover when device leaves', async () => {
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
-        await flushPromises();
         controller.extensions.find((e) => e.constructor.name === 'HomeAssistant').discovered = {};
         const device = zigbeeHerdsman.devices.bulb;
         const payload = {ieeeAddr: device.ieeeAddr};
@@ -944,10 +920,9 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should send all status when home assistant comes online (default topic)', async () => {
-        jest.useFakeTimers();
         data.writeDefaultState();
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
+        extension.state._load();
+        await resetExtension();
         expect(MQTT.subscribe).toHaveBeenCalledWith('homeassistant/status');
         await flushPromises();
         MQTT.publish.mockClear();
@@ -970,11 +945,9 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should send all status when home assistant comes online', async () => {
-        jest.useFakeTimers();
         data.writeDefaultState();
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
-        await flushPromises();
+        extension.state._load();
+        await resetExtension();
         expect(MQTT.subscribe).toHaveBeenCalledWith('hass/status');
         MQTT.publish.mockClear();
         await MQTT.events.message('hass/status', 'online');
@@ -996,10 +969,9 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldnt send all status when home assistant comes offline', async () => {
-        jest.useFakeTimers();
         data.writeDefaultState();
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
+        extension.state._load();
+        await resetExtension();
         await flushPromises();
         MQTT.publish.mockClear();
         await MQTT.events.message('hass/status', 'offline');
@@ -1010,11 +982,9 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldnt send all status when home assistant comes online with different topic', async () => {
-        jest.useFakeTimers();
         data.writeDefaultState();
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
-        await flushPromises();
+        extension.state._load();
+        await resetExtension();
         MQTT.publish.mockClear();
         await MQTT.events.message('hass/status_different', 'offline');
         await flushPromises();
@@ -1025,15 +995,14 @@ describe('HomeAssistant extension', () => {
 
     it('Should discover devices with availability', async () => {
         settings.set(['advanced', 'availability_timeout'], 1)
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
-        await flushPromises();
 
         payload = {
             'unit_of_measurement': '°C',
             'device_class': 'temperature',
+            'enabled_by_default': true,
             'state_class': 'measurement',
             'value_template': '{{ value_json.temperature }}',
             'state_topic': 'zigbee2mqtt/weather_sensor',
@@ -1043,7 +1012,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -1059,9 +1028,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should clear discovery when device is removed', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
         MQTT.events.message('zigbee2mqtt/bridge/config/remove', 'weather_sensor');
         await flushPromises();
@@ -1099,9 +1065,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should not clear discovery when unsupported device is removed', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
         MQTT.events.message('zigbee2mqtt/bridge/config/remove', 'unsupported2');
         await flushPromises();
@@ -1109,9 +1072,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should refresh discovery when device is renamed', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         await MQTT.events.message('homeassistant/device_automation/0x0017880104e45522/action_double/config', stringify({topic: 'zigbee2mqtt/weather_sensor/action'}));
         await flushPromises();
         MQTT.publish.mockClear();
@@ -1122,6 +1082,7 @@ describe('HomeAssistant extension', () => {
             'unit_of_measurement': '°C',
             'device_class': 'temperature',
             'state_class': 'measurement',
+            'enabled_by_default': true,
             'value_template': '{{ value_json.temperature }}',
             'state_topic': 'zigbee2mqtt/weather_sensor_renamed',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor_renamed',
@@ -1130,7 +1091,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor_renamed',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -1164,7 +1125,7 @@ describe('HomeAssistant extension', () => {
                         "zigbee2mqtt_0x0017880104e45522"
                     ],
                     "name":"weather_sensor_renamed",
-                    "sw_version": this.version,
+                    "sw_version": version,
                     "model":"Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)",
                     "manufacturer":"Xiaomi"
                 }
@@ -1175,9 +1136,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldnt refresh discovery when device is renamed and homeassistant_rename is false', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
         MQTT.events.message('zigbee2mqtt/bridge/request/device/rename', stringify({"from": "weather_sensor", "to": "weather_sensor_renamed","homeassistant_rename":false}));
         await flushPromises();
@@ -1193,6 +1151,7 @@ describe('HomeAssistant extension', () => {
             'unit_of_measurement': '°C',
             'device_class': 'temperature',
             'state_class': 'measurement',
+            'enabled_by_default': true,
             'value_template': '{{ value_json.temperature }}',
             'state_topic': 'zigbee2mqtt/weather_sensor_renamed',
             'json_attributes_topic': 'zigbee2mqtt/weather_sensor_renamed',
@@ -1201,7 +1160,7 @@ describe('HomeAssistant extension', () => {
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor_renamed',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -1217,9 +1176,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover update_available sensor when device supports it', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         const payload = {
             "payload_on":true,
             "payload_off":false,
@@ -1234,7 +1190,7 @@ describe('HomeAssistant extension', () => {
                     "zigbee2mqtt_0x000b57fffec6a5b2"
                 ],
                 "name":"bulb",
-                'sw_version': this.version,
+                'sw_version': version,
                 "model":"TRADFRI LED bulb E26/E27 980 lumen, dimmable, white spectrum, opal white (LED1545G12)",
                 "manufacturer":"IKEA"
             },
@@ -1250,10 +1206,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should discover trigger when click is published', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
-
         const discovered = MQTT.publish.mock.calls.filter((c) => c[0].includes('0x0017880104e45520')).map((c) => c[0]);
         expect(discovered.length).toBe(5);
         expect(discovered).toContain('homeassistant/sensor/0x0017880104e45520/click/config');
@@ -1277,7 +1229,7 @@ describe('HomeAssistant extension', () => {
                     "zigbee2mqtt_0x0017880104e45520"
                 ],
                 "name":"button",
-                "sw_version": this.version,
+                "sw_version": version,
                 "model":"Aqara wireless switch (WXKG11LM)",
                 "manufacturer":"Xiaomi"
             }
@@ -1301,7 +1253,7 @@ describe('HomeAssistant extension', () => {
                     "zigbee2mqtt_0x0017880104e45520"
                 ],
                 "name":"button",
-                "sw_version": this.version,
+                "sw_version": version,
                 "model":"Aqara wireless switch (WXKG11LM)",
                 "manufacturer":"Xiaomi"
             }
@@ -1406,9 +1358,7 @@ describe('HomeAssistant extension', () => {
         settings.set(['device_options'], {
             homeassistant: {device_automation: null},
         })
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
+        await resetExtension();
         MQTT.publish.mockClear();
 
         const device = zigbeeHerdsman.devices.WXKG11LM;
@@ -1430,9 +1380,7 @@ describe('HomeAssistant extension', () => {
             friendly_name: 'weather_sensor',
             retain: false,
         })
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
+        await resetExtension();
 
         const discovered = MQTT.publish.mock.calls.filter((c) => c[0].includes('0x0017880104e45520')).map((c) => c[0]);
         expect(discovered.length).toBe(4);
@@ -1443,9 +1391,7 @@ describe('HomeAssistant extension', () => {
 
     it('Should disable Home Assistant legacy triggers', async () => {
         settings.set(['advanced', 'homeassistant_legacy_triggers'], false);
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
+        await resetExtension();
 
         const discovered = MQTT.publish.mock.calls.filter((c) => c[0].includes('0x0017880104e45520')).map((c) => c[0]);
         expect(discovered.length).toBe(3);
@@ -1471,7 +1417,7 @@ describe('HomeAssistant extension', () => {
                     "zigbee2mqtt_0x0017880104e45520"
                 ],
                 "name":"button",
-                "sw_version": this.version,
+                "sw_version": version,
                 "model":"Aqara wireless switch (WXKG11LM)",
                 "manufacturer":"Xiaomi"
             }
@@ -1502,9 +1448,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should republish payload to postfix topic with lightWithPostfix config', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
 
         await MQTT.events.message('zigbee2mqtt/U202DST600ZB/l2/set', stringify({state: 'ON', brightness: 20}));
@@ -1515,9 +1458,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Shouldnt crash in onPublishEntityState on group publish', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         logger.error.mockClear();
         MQTT.publish.mockClear();
 
@@ -1527,9 +1467,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should counter an action payload with an empty payload', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
         const device = zigbeeHerdsman.devices.WXKG11LM;
         settings.set(['devices', device.ieeeAddr, 'legacy'], false);
@@ -1551,10 +1488,7 @@ describe('HomeAssistant extension', () => {
     it('Load Home Assistant mapping from external converters', async () => {
         fs.copyFileSync(path.join(__dirname, 'assets', 'mock-external-converter-multiple.js'), path.join(data.mockDir, 'mock-external-converter-multiple.js'));
         settings.set(['external_converters'], ['mock-external-converter-multiple.js']);
-        controller = new Controller(jest.fn(), jest.fn());
-        const ha = controller.extensions.find((e) => e.constructor.name === 'HomeAssistant');
-        await controller.start();
-        await flushPromises();
+        await resetExtension();
 
         const homeassistantSwitch = {
             type: 'switch',
@@ -1566,13 +1500,36 @@ describe('HomeAssistant extension', () => {
                 command_topic: true,
             },
         };
-        expect(ha._getMapping()['external_converters_device_1']).toEqual([homeassistantSwitch]);
+        expect(extension._getMapping()['external_converters_device_1']).toEqual([homeassistantSwitch]);
     });
 
     it('Should clear outdated configs', async () => {
-        controller = new Controller(jest.fn(), jest.fn());
-        await controller.start();
+        // Non-existing group -> clear
+        MQTT.publish.mockClear();
+        await MQTT.events.message('homeassistant/light/1221051039810110150109113116116_91231/light/config', stringify({availability: [{topic: 'zigbee2mqtt/bridge/state'}]}));
         await flushPromises();
+        expect(MQTT.publish).toHaveBeenCalledTimes(1);
+        expect(MQTT.publish).toHaveBeenCalledWith('homeassistant/light/1221051039810110150109113116116_91231/light/config', null, {qos: 0, retain: true}, expect.any(Function));
+
+        // Existing group -> dont clear
+        MQTT.publish.mockClear();
+        await MQTT.events.message('homeassistant/light/1221051039810110150109113116116_9/light/config', stringify({availability: [{topic: 'zigbee2mqtt/bridge/state'}]}));
+        await flushPromises();
+        expect(MQTT.publish).toHaveBeenCalledTimes(0);
+
+        // Existing group with old topic structure (1.20.0) -> clear
+        MQTT.publish.mockClear();
+        await MQTT.events.message('homeassistant/light/9/light/config', stringify({availability: [{topic: 'zigbee2mqtt/bridge/state'}]}));
+        await flushPromises();
+        expect(MQTT.publish).toHaveBeenCalledTimes(1);
+        expect(MQTT.publish).toHaveBeenCalledWith('homeassistant/light/9/light/config', null, {qos: 0, retain: true}, expect.any(Function));
+
+        // Existing group, non existing config ->  clear
+        MQTT.publish.mockClear();
+        await MQTT.events.message('homeassistant/light/1221051039810110150109113116116_9/switch/config', stringify({availability: [{topic: 'zigbee2mqtt/bridge/state'}]}));
+        await flushPromises();
+        expect(MQTT.publish).toHaveBeenCalledTimes(1);
+        expect(MQTT.publish).toHaveBeenCalledWith('homeassistant/light/1221051039810110150109113116116_9/switch/config', null, {qos: 0, retain: true}, expect.any(Function));
 
         // Non-existing device -> clear
         MQTT.publish.mockClear();
@@ -1619,12 +1576,8 @@ describe('HomeAssistant extension', () => {
         expect(MQTT.publish).toHaveBeenCalledTimes(0);
 
         // Device was flagged to be excluded from homeassistant discovery
-        await controller.stop();
-        await flushPromises();
         settings.set(['devices', '0x000b57fffec6a5b2', 'homeassistant'], null);
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
+        await resetExtension();
         MQTT.publish.mockClear();
 
         await MQTT.events.message('homeassistant/sensor/0x000b57fffec6a5b2/update_available/config', stringify({availability: [{topic: 'zigbee2mqtt/bridge/state'}]}));
@@ -1638,8 +1591,7 @@ describe('HomeAssistant extension', () => {
 
     it('Should not have Home Assistant legacy entity attributes when disabled', async () => {
         settings.set(['advanced', 'homeassistant_legacy_entity_attributes'], false);
-        controller = new Controller(false);
-        await controller.start();
+        await resetExtension();
 
         let payload;
         await flushPromises();
@@ -1652,10 +1604,11 @@ describe('HomeAssistant extension', () => {
             'state_topic': 'zigbee2mqtt/weather_sensor',
             'name': 'weather_sensor_temperature',
             'unique_id': '0x0017880104e45522_temperature_zigbee2mqtt',
+            'enabled_by_default': true,
             'device': {
                 'identifiers': ['zigbee2mqtt_0x0017880104e45522'],
                 'name': 'weather_sensor',
-                'sw_version': this.version,
+                'sw_version': version,
                 'model': 'Aqara temperature, humidity and pressure sensor (WSDCGQ11LM)',
                 'manufacturer': 'Xiaomi',
             },
@@ -1671,9 +1624,6 @@ describe('HomeAssistant extension', () => {
     });
 
     it('Should rediscover group when device is added to it', async () => {
-        controller = new Controller(false);
-        await controller.start();
-        await flushPromises();
         MQTT.publish.mockClear();
         MQTT.events.message('zigbee2mqtt/bridge/request/group/members/add', stringify({group: 'ha_discovery_group', device: 'wall_switch_double/left'}));
         await flushPromises();
@@ -1685,13 +1635,13 @@ describe('HomeAssistant extension', () => {
             "color_mode":true,
             "command_topic":"zigbee2mqtt/ha_discovery_group/set",
             "device":{
-               "identifiers":[
-                  "zigbee2mqtt_9"
-               ],
+               "identifiers":["zigbee2mqtt_1221051039810110150109113116116_9"],
                "name":"ha_discovery_group",
-               "sw_version":this.version,
+               "sw_version":version,
             },
             "json_attributes_topic":"zigbee2mqtt/ha_discovery_group",
+            "max_mireds": 454,
+            "min_mireds": 250,
             "name":"ha_discovery_group",
             "schema":"json",
             "state_topic":"zigbee2mqtt/ha_discovery_group",
@@ -1703,7 +1653,7 @@ describe('HomeAssistant extension', () => {
          };
 
         expect(MQTT.publish).toHaveBeenCalledWith(
-            'homeassistant/light/9/light/config',
+            'homeassistant/light/1221051039810110150109113116116_9/light/config',
             stringify(payload),
             { retain: true, qos: 0 },
             expect.any(Function),

@@ -4,7 +4,7 @@ const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
 const MQTT = require('./stub/mqtt');
 const settings = require('../lib/util/settings');
 const Controller = require('../lib/controller');
-const flushPromises = () => new Promise(setImmediate);
+const flushPromises = require('./lib/flushPromises');
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stringify = require('json-stable-stringify-without-jsonify');
 
@@ -12,13 +12,14 @@ const mocksClear = [MQTT.publish, logger.warn, logger.debug];
 
 describe('Configure', () => {
     let controller;
+    let coordinatorEndpoint;
 
-    expectRemoteConfigured = () => {
+    const expectRemoteConfigured = () => {
         const device = zigbeeHerdsman.devices.remote;
         const endpoint1 = device.getEndpoint(1);
         expect(endpoint1.bind).toHaveBeenCalledTimes(2);
-        expect(endpoint1.bind).toHaveBeenCalledWith('genOnOff', this.coordinatorEndoint);
-        expect(endpoint1.bind).toHaveBeenCalledWith('genLevelCtrl', this.coordinatorEndoint);
+        expect(endpoint1.bind).toHaveBeenCalledWith('genOnOff', coordinatorEndpoint);
+        expect(endpoint1.bind).toHaveBeenCalledWith('genLevelCtrl', coordinatorEndpoint);
 
         const endpoint2 = device.getEndpoint(2);
         expect(endpoint2.write).toHaveBeenCalledTimes(1);
@@ -26,7 +27,7 @@ describe('Configure', () => {
         expect(device.meta.configured).toBe(1);
     }
 
-    expectBulbConfigured = () => {
+    const expectBulbConfigured = () => {
         const device = zigbeeHerdsman.devices.bulb;
         const endpoint1 = device.getEndpoint(1);
         expect(endpoint1.read).toHaveBeenCalledTimes(2);
@@ -34,19 +35,19 @@ describe('Configure', () => {
         expect(endpoint1.read).toHaveBeenCalledWith('lightingColorCtrl', [ 'colorTempPhysicalMin', 'colorTempPhysicalMax' ]);
     }
 
-    expectBulbNotConfigured = () => {
+    const expectBulbNotConfigured = () => {
         const device = zigbeeHerdsman.devices.bulb;
         const endpoint1 = device.getEndpoint(1);
         expect(endpoint1.read).toHaveBeenCalledTimes(0);
     }
 
-    expectRemoteNotConfigured = () => {
+    const expectRemoteNotConfigured = () => {
         const device = zigbeeHerdsman.devices.remote;
         const endpoint1 = device.getEndpoint(1);
         expect(endpoint1.bind).toHaveBeenCalledTimes(0);
     }
 
-    mockClear = (device) => {
+    const mockClear = (device) => {
         for (const endpoint of device.endpoints) {
             endpoint.read.mockClear();
             endpoint.write.mockClear();
@@ -55,17 +56,29 @@ describe('Configure', () => {
         }
     }
 
-    beforeEach(async () => {
-        jest.useRealTimers();
-        data.writeDefaultConfiguration();
-        settings.reRead();
-        data.writeEmptyState();
+    let resetExtension = async () => {
+        await controller.enableDisableExtension(false, 'Configure');
+        await controller.enableDisableExtension(true, 'Configure');
+    }
+
+    beforeAll(async () => {
+        jest.useFakeTimers();
         controller = new Controller(jest.fn(), jest.fn());
         await controller.start();
-        mocksClear.forEach((m) => m.mockClear());
         await flushPromises();
-        this.coordinatorEndoint = zigbeeHerdsman.devices.coordinator.getEndpoint(1);
     });
+
+    beforeEach(async () => {
+        data.writeDefaultConfiguration();
+        settings.reRead();
+        mocksClear.forEach((m) => m.mockClear());
+     coordinatorEndpoint = zigbeeHerdsman.devices.coordinator.getEndpoint(1);
+        await resetExtension();
+    });
+
+    afterAll(async () => {
+        jest.useRealTimers();
+    })
 
     it('Should configure Router on startup', async () => {
         expectBulbConfigured();
@@ -100,10 +113,8 @@ describe('Configure', () => {
     it('Should not configure twice', async () => {
         expectBulbConfigured();
         const device = zigbeeHerdsman.devices.bulb;
-        const endpoint = device.getEndpoint(1);
         mockClear(device);
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expectBulbNotConfigured();
     });
@@ -111,10 +122,8 @@ describe('Configure', () => {
     it('Should configure on zigbee message when not configured yet', async () => {
         const device = zigbeeHerdsman.devices.bulb;
         delete device.meta.configured;
-        const endpoint = device.getEndpoint(1);
         mockClear(device);
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expectBulbConfigured();
     });
@@ -189,8 +198,7 @@ describe('Configure', () => {
         device.interviewing = true;
         const endpoint = device.getEndpoint(1);
         mockClear(device);
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expectRemoteNotConfigured();
         device.interviewing = false;
@@ -202,8 +210,7 @@ describe('Configure', () => {
         device.interviewCompleted = false;
         const endpoint = device.getEndpoint(1);
         mockClear(device);
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expectRemoteConfigured();
         device.interviewCompleted = true;
@@ -215,11 +222,10 @@ describe('Configure', () => {
         const endpoint = device.getEndpoint(1);
         endpoint.bind.mockImplementationOnce(async () => await wait(500));
         mockClear(device);
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expect(endpoint.bind).toHaveBeenCalledTimes(1);
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expect(endpoint.bind).toHaveBeenCalledTimes(1);
     });
@@ -231,20 +237,19 @@ describe('Configure', () => {
         const endpoint = device.getEndpoint(1);
         mockClear(device);
         endpoint.bind.mockImplementationOnce(async () => {throw new Error('BLA')});
-        const payload = {data: {zclVersion: 1}, cluster: 'genBasic', device, endpoint, type: 'attributeReport', linkquality: 10};
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         endpoint.bind.mockImplementationOnce(async () => {throw new Error('BLA')});
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         endpoint.bind.mockImplementationOnce(async () => {throw new Error('BLA')});
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         endpoint.bind.mockImplementationOnce(async () => {throw new Error('BLA')});
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         endpoint.bind.mockImplementationOnce(async () => {throw new Error('BLA')});
-        await zigbeeHerdsman.events.message(payload);
+        await zigbeeHerdsman.events.lastSeenChanged({device});
         await flushPromises();
         expect(endpoint.bind).toHaveBeenCalledTimes(3);
     });

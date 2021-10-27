@@ -5,7 +5,7 @@ const MQTT = require('./stub/mqtt');
 const settings = require('../lib/util/settings');
 const Controller = require('../lib/controller');
 const stringify = require('json-stable-stringify-without-jsonify');
-const flushPromises = () => new Promise(setImmediate);
+const flushPromises = require('./lib/flushPromises');
 const zigbeeHerdsman = require('./stub/zigbeeHerdsman');
 jest.spyOn(process, 'exit').mockImplementation(() => {});
 
@@ -31,6 +31,7 @@ const mockWS = {
             cb(mockWSocket)
         }),
         emit: jest.fn(),
+        close: jest.fn(),
     },
     variables: {},
     events: {},
@@ -70,6 +71,10 @@ jest.mock('ws', () => ({
 describe('Frontend', () => {
     let controller;
 
+    beforeAll(async () => {
+        jest.useFakeTimers();
+    });
+
     beforeEach(async () => {
         mockWS.implementation.clients = [];
         data.writeDefaultConfiguration();
@@ -78,6 +83,10 @@ describe('Frontend', () => {
         settings.set(['frontend'], {port: 8081, host: "127.0.0.1"});
         settings.set(['homeassistant'], true);
         zigbeeHerdsman.devices.bulb.linkquality = 10;
+    });
+
+    afterAll(async () => {
+        jest.useRealTimers();
     });
 
     afterEach(async() => {
@@ -92,15 +101,16 @@ describe('Frontend', () => {
 
         const mockWSClient = {
             implementation: {
-                close: jest.fn(),
+                terminate: jest.fn(),
                 send: jest.fn(),
             },
             events: {},
         };
         mockWS.implementation.clients.push(mockWSClient.implementation);
         await controller.stop();
-        expect(mockWSClient.implementation.close).toHaveBeenCalledTimes(1);
+        expect(mockWSClient.implementation.terminate).toHaveBeenCalledTimes(1);
         expect(mockHTTP.implementation.close).toHaveBeenCalledTimes(1);
+        expect(mockWS.implementation.close).toHaveBeenCalledTimes(1);
     });
 
     it('Websocket interaction', async () => {
@@ -125,7 +135,7 @@ describe('Frontend', () => {
         // Message
         MQTT.publish.mockClear();
         mockWSClient.implementation.send.mockClear();
-        mockWSClient.events.message(stringify({topic: 'bulb_color/set', payload: {state: 'ON'}}))
+        mockWSClient.events.message(stringify({topic: 'bulb_color/set', payload: {state: 'ON'}}), false)
         await flushPromises();
         expect(MQTT.publish).toHaveBeenCalledTimes(1);
         expect(MQTT.publish).toHaveBeenCalledWith(
@@ -134,9 +144,9 @@ describe('Frontend', () => {
             { retain: false, qos: 0 },
             expect.any(Function)
         );
-        mockWSClient.events.message(undefined);
-        mockWSClient.events.message("");
-        mockWSClient.events.message(null);
+        mockWSClient.events.message(undefined, false);
+        mockWSClient.events.message("", false);
+        mockWSClient.events.message(null, false);
         await flushPromises();
 
         // Received message on socket
@@ -146,7 +156,7 @@ describe('Frontend', () => {
         // Shouldnt set when not ready
         mockWSClient.implementation.send.mockClear();
         mockWSClient.implementation.readyState = 'close';
-        mockWSClient.events.message(stringify({topic: 'bulb_color/set', payload: {state: 'ON'}}))
+        mockWSClient.events.message(stringify({topic: 'bulb_color/set', payload: {state: 'ON'}}), false)
         expect(mockWSClient.implementation.send).toHaveBeenCalledTimes(0);
 
         // Send last seen on connect
